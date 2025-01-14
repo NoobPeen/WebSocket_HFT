@@ -64,7 +64,7 @@ void WebSocketHandler::sendMessage(const json& message) {
         std::string message_str = message.dump();
         websocket_.write(asio::buffer(message_str));
 
-        std::cout << "Sent message: " << message_str << std::endl;
+        // std::cout << "Sent message: " << message_str << std::endl;
     }
     catch (const std::exception& e) {
         std::cerr << "Error sending message: " << e.what() << std::endl;
@@ -80,7 +80,7 @@ json WebSocketHandler::readMessage() {
 
         // Parse the received message as JSON
         std::string message_str = beast::buffers_to_string(buffer.data());
-        std::cout << "Received message: " << message_str << std::endl;
+        // std::cout << "Received message: " << message_str << std::endl;
 
         // End the timer and log the latency
         LatencyModule::end(read_start, "WebSocket Read Latency");

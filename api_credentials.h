@@ -4,8 +4,8 @@
 #include <cstdlib>
 #include <string>
 
-const std::string CLIENT_ID = "";
-const std::string CLIENT_SECRET = "";
+const std::string CLIENT_ID = "zctqL55Z";
+const std::string CLIENT_SECRET = "dCMKd2cq97sYw1li9LqsrcXlEoiCM10QoxOigKtGcfk";
 
 #endif // API_CREDENTIALS_H
 
