@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/deribit_trader.dir/deribit_trader.cpp.o CMakeFiles/deribit_trader.dir/websocket_handler.cpp.o CMakeFiles/deribit_trader.dir/trade_execution.cpp.o CMakeFiles/deribit_trader.dir/latency_module.cpp.o -o deribit_trader  /usr/lib/x86_64-linux-gnu/libssl.so /usr/lib/x86_64-linux-gnu/libcrypto.so 
