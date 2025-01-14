@@ -102,7 +102,12 @@ json TradeExecution::placeBuyOrder(const std::string& instrument_name, double am
             }}
         };
         websocket_.sendMessage(buy_request);
-        return websocket_.readMessage();
+        auto response = websocket_.readMessage();
+        
+        // Add debug logging
+        std::cout << "Buy order response: " << response.dump(2) << std::endl;
+        
+        return response;
     }
     catch (const std::exception& e) {
         std::cerr << "Error in placeBuyOrder: " << e.what() << std::endl;
@@ -139,7 +144,7 @@ json TradeExecution::modifyOrder(const std::string& order_id, double new_price, 
                 {"order_id", order_id},
                 {"new_price", new_price},
                 {"new_amount", new_amount},
-                {"contracts", new_amount}  // Add the 'contracts' parameter
+                {"contracts", new_amount}
             }}
         };
         websocket_.sendMessage(modify_request);
@@ -247,5 +252,22 @@ void TradeExecution::handleOrderBookUpdate(const json& update) {
     }
     catch (const std::exception& e) {
         std::cerr << "Error handling order book update: " << e.what() << std::endl;
+    }
+}
+
+json TradeExecution::getOrderDetails(const std::string& order_id) {
+    try {
+        json request = {
+            {"jsonrpc", "2.0"},
+            {"id", getNextRequestId()},
+            {"method", "private/get_order_state"},
+            {"params", {{"order_id", order_id}}}
+        };
+        websocket_.sendMessage(request);
+        return websocket_.readMessage();
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error getting order details: " << e.what() << std::endl;
+        throw;
     }
 }

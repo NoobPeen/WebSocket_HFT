@@ -10,9 +10,7 @@
 #include <future>
 #include <vector>
 #include <thread>
-#include <immintrin.h> // For SIMD Prepares for potential SIMD optimizations (not yet implemented in this code). 
-                        //SIMD can be used for parallel processing of repetitive tasks like order book analysis.
-                        //CPU Optimization
+#include <immintrin.h>
 
 void executeTrades() {
     try {
@@ -29,10 +27,7 @@ void executeTrades() {
         json auth_response = trade->authenticate(CLIENT_ID, CLIENT_SECRET);
         std::cout << "Auth Response: " << auth_response.dump(4) << std::endl;
 
-        // Use unordered_map to cache order responses (optimization)
-        // Replace linear search structures with 
-        // std::unordered_map for faster access
-        std::unordered_map<std::string, json> order_cache;
+        // std::unordered_map<std::string, json> order_cache;
 
         while (true) {
             std::string instrument_name, order_id;
@@ -46,12 +41,13 @@ void executeTrades() {
             std::cout << "4. Get Order Book\n";
             std::cout << "5. View Current Positions\n";
             std::cout << "6. Subscribe to Order Book Updates\n";
+            // std::cout << "7. View Active Orders\n";
             std::cout << "7. Exit\n";
             std::cout << "Enter your choice: ";
             int choice;
             std::cin >> choice;
             
-            auto loop_start = LatencyModule::start();  // Start the timer for end-to-end latency
+            auto loop_start = LatencyModule::start();  // Start the timer
             
             if (choice == 7) {
                 std::cout << "Exiting trading application.\n";
@@ -73,20 +69,26 @@ void executeTrades() {
                         json buy_response = trade->placeBuyOrder(instrument_name, amount, price);
                         LatencyModule::end(order_start, "Order Placement");
                         return buy_response;
-                        });
-
-                    //Optimization
-                    // Wait for the order result asynchronously (non-blocking until we get the result)
-                    //used std::async for the functions placeBuyOrder, cancelOrder, and modifyOrder to 
-                    // make these network requests asynchronous. This allows the application to continue 
-                    // running while waiting for responses from the server. This reduces the time spent 
-                    // in blocking I/O operations.
-
-                    //The use of std::async enables parallel execution of tasks like placing and canceling 
-                    // orders. This means that the main thread can continue interacting with the user 
-                    // while the network operations are handled in the background.
+                    });
+                    
                     json buy_response = order_future.get();
-                    std::cout << "Order Response: " << buy_response.dump(4) << std::endl;
+                    std::cout << "Full response received: " << buy_response.dump(2) << std::endl;
+                    
+                    if (buy_response.contains("result")) {
+                        const auto& result = buy_response["result"];
+                        std::cout << "Result section: " << result.dump(2) << std::endl;
+                        
+                    //     if (result.contains("order_id")) {
+                    //         std::string order_id = result["order_id"].get<std::string>();
+                    //         order_cache[order_id] = result;
+                    //         std::cout << "Successfully cached order with ID: " << order_id << std::endl;
+                    //         std::cout << "Cache size is now: " << order_cache.size() << std::endl;
+                    //     } else {
+                    //         std::cout << "No order_id in result" << std::endl;
+                    //     }
+                    // } else {
+                    //     std::cout << "No result section in response" << std::endl;
+                    }
                 }
                 catch (const std::exception& e) {
                     std::cerr << "Error placing order: " << e.what() << std::endl;
@@ -99,15 +101,22 @@ void executeTrades() {
                 std::cin >> order_id;
 
                 try {
+                        // if (order_cache.count(order_id) > 0) {
+                        //     std::cout << "Cached Order Details: " << order_cache[order_id].dump(4) << std::endl;
+                        // }
+                    
                         auto cancel_future = std::async(std::launch::async, [&]() {
-                        auto cancel_start = LatencyModule::start();
-                        json cancel_response = trade->cancelOrder(order_id);
-                        LatencyModule::end(cancel_start, "Cancel Order");
-                        return cancel_response;
-                        }); 
-
-                    json cancel_response = cancel_future.get();
-                    std::cout << "Cancel Response: " << cancel_response.dump(4) << std::endl;
+                            auto cancel_start = LatencyModule::start();
+                            json cancel_response = trade->cancelOrder(order_id);
+                            LatencyModule::end(cancel_start, "Cancel Order");
+                        
+                            // // Remove from cache after successful cancellation
+                            // if (cancel_response.contains("result")) {
+                            //     order_cache.erase(order_id);
+                            // }
+                        
+                            return cancel_response;
+                        });
                 }
                 catch (const std::exception& e) {
                     std::cerr << "Error cancelling order: " << e.what() << std::endl;
@@ -216,6 +225,31 @@ void executeTrades() {
                 }
                 break;
             }
+
+            // case 7: {  // Display Cached Orders
+            //     if (order_cache.empty()) {
+            //         std::cout << "\nNo active orders in cache.\n";
+            //     } else {
+            //         std::cout << "\n=== Active Orders ===\n";
+            //         for (const auto& [order_id, order_info] : order_cache) {
+            //             std::cout << "\nOrder ID: " << order_id;
+            //             if (order_info.contains("instrument_name")) {
+            //                 std::cout << "\nInstrument: " << order_info["instrument_name"];
+            //             }
+            //             if (order_info.contains("price")) {
+            //                 std::cout << "\nPrice: " << order_info["price"];
+            //             }
+            //             if (order_info.contains("amount")) {
+            //                 std::cout << "\nAmount: " << order_info["amount"];
+            //             }
+            //             if (order_info.contains("order_state")) {
+            //                 std::cout << "\nState: " << order_info["order_state"];
+            //             }
+            //             std::cout << "\n-------------------\n";
+            //         }
+            //     }
+            //     break;
+            // }
 
             default:
                 std::cout << "Invalid choice. Please try again.\n";
