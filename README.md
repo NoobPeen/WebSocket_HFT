@@ -38,7 +38,7 @@ sudo apt install -y nlohmann-json3-dev
 
 1. Clone the repository:
 ```bash
-git clone [<repository-url>](https://github.com/NoobPeen/WebSocket_HFT.git)
+git clone https://github.com/NoobPeen/WebSocket_HFT.git
 cd deribit-trading-cli
 ```
 
