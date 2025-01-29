@@ -19,10 +19,11 @@ namespace ssl = asio::ssl;
 using tcp = asio::ip::tcp;
 using json = nlohmann::json;
 
-class WebSocketHandler {
+class WebSocketHandler : public std::enable_shared_from_this<WebSocketHandler> {
 public:
     // Constructor now includes TradeExecution reference
-    WebSocketHandler(const std::string& host, const std::string& port, const std::string& endpoint );
+    WebSocketHandler(asio::io_context& ioc, const std::string& host, 
+                    const std::string& port, const std::string& endpoint);
     void subscribe(const std::string& channel);
     void unsubscribe(const std::string& channel);
     // Add this to the public section of the WebSocketHandler class
@@ -33,14 +34,25 @@ public:
     json readMessage();
     void close();
 
+    
+    // In websocket_handler.h
+    void set_message_handler(std::function<void(const std::string&)> handler);
+    void close_connection();  // renamed from close() to avoid confusion
+    void async_connect(std::function<void(boost::system::error_code)> callback = nullptr);
+
 private:
-    asio::io_context ioc_;
+    asio::io_context& ioc_;
     ssl::context ctx_;
     tcp::resolver resolver_;
     beast::websocket::stream<ssl::stream<tcp::socket>> websocket_;
     std::string host_;
     std::string endpoint_;
     // TradeExecution& trade_execution_;  // Reference to TradeExecution object
+    // In websocket_handler.h
+    void start_read();
+    std::function<void(const std::string&)> message_handler_;
+    beast::flat_buffer buffer_;
+    std::function<void(boost::system::error_code)> connect_callback_;
 };
 
 #endif // WEBSOCKET_HANDLER_H
