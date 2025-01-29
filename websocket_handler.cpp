@@ -2,17 +2,18 @@
 #include "latency_module.h"
 #include <iostream>
 
-WebSocketHandler::WebSocketHandler(const std::string& host, const std::string& port, const std::string& endpoint )
-    : ctx_(ssl::context::tlsv12_client),
-    resolver_(ioc_),
-    websocket_(ioc_, ctx_),
-    host_(host),
-    endpoint_(endpoint) {
-    //trade_execution_(trade_execution) {  // Initialize the TradeExecution reference
-    // Load the default SSL certificates
+WebSocketHandler::WebSocketHandler(asio::io_context& ioc, const std::string& host, 
+                                 const std::string& port, const std::string& endpoint)
+    : ioc_(ioc),
+      ctx_(ssl::context::tlsv12_client),
+      resolver_(ioc_),
+      websocket_(ioc_, ctx_),
+      host_(host),
+      endpoint_(endpoint) {
+    
+    ctx_.set_verify_mode(ssl::verify_peer);
     ctx_.set_default_verify_paths();
 }
-
 void WebSocketHandler::onMessage(const std::string& message) {
     try {
         json data = json::parse(message);
@@ -174,3 +175,107 @@ void WebSocketHandler::unsubscribe(const std::string& channel) {
     };
     sendMessage(unsub_message);
 }
+
+
+void WebSocketHandler::async_connect(std::function<void(boost::system::error_code)> callback) {
+    try {
+        std::cout << "Starting async connection to: " << host_ << std::endl;
+        
+        // Start the resolver
+        resolver_.async_resolve(
+            host_,
+            "443",
+            [this, callback](boost::system::error_code ec, tcp::resolver::results_type results) {
+                if(ec) {
+                    std::cerr << "Resolution failed: " << ec.message() << std::endl;
+                    if(callback) callback(ec);
+                    return;
+                }
+
+                // Once resolved, initiate async connect
+                asio::async_connect(
+                    websocket_.next_layer().next_layer(),
+                    results,
+                    [this, callback](boost::system::error_code ec, const tcp::endpoint&) {
+                        if(ec) {
+                            std::cerr << "Connect failed: " << ec.message() << std::endl;
+                            if(callback) callback(ec);
+                            return;
+                        }
+
+                        // After connection, perform SSL handshake
+                        websocket_.next_layer().async_handshake(
+                            ssl::stream_base::client,
+                            [this, callback](boost::system::error_code ec) {
+                                if(ec) {
+                                    std::cerr << "SSL handshake failed: " << ec.message() << std::endl;
+                                    if(callback) callback(ec);
+                                    return;
+                                }
+
+                                // Finally, perform WebSocket handshake
+                                websocket_.async_handshake(
+                                    host_,
+                                    endpoint_,
+                                    [this, callback](boost::system::error_code ec) {
+                                        if(ec) {
+                                            std::cerr << "WebSocket handshake failed: " << ec.message() << std::endl;
+                                        } else {
+                                            std::cout << "WebSocket connected successfully!" << std::endl;
+                                        }
+                                        if(callback) callback(ec);
+                                    });
+                            });
+                    });
+            });
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Exception in async_connect: " << e.what() << std::endl;
+        if(callback) {
+            callback(boost::system::errc::make_error_code(
+                boost::system::errc::operation_canceled));
+        }
+    }
+}
+
+void WebSocketHandler::start_read() {
+    auto self = shared_from_this();
+    websocket_.async_read(
+        buffer_,
+        [this, self](boost::system::error_code ec, std::size_t bytes_transferred) {
+            if (!ec) {
+                std::string msg = beast::buffers_to_string(buffer_.data());
+                buffer_.consume(buffer_.size());
+                onMessage(msg);
+                start_read();  // Continue reading
+            }
+        });
+}
+
+void WebSocketHandler::set_message_handler(std::function<void(const std::string&)> handler) {
+    message_handler_ = handler;
+}
+
+void WebSocketHandler::close_connection() {
+    try {
+        websocket_.close(beast::websocket::close_code::normal);
+    } catch (const std::exception& e) {
+        std::cerr << "Error closing WebSocket: " << e.what() << std::endl;
+    }
+}
+
+// In WebSocketHandler class, add a method to send ping
+// void WebSocketHandler::start_ping_timer() {
+//     auto timer = std::make_shared<boost::asio::steady_timer>(ioc_);
+//     timer->expires_after(std::chrono::seconds(30));
+//     timer->async_wait([this, timer](boost::system::error_code ec) {
+//         if (!ec) {
+//             try {
+//                 websocket_.ping();
+//                 start_ping_timer();  // Schedule next ping
+//             } catch (const std::exception& e) {
+//                 std::cerr << "Ping error: " << e.what() << std::endl;
+//             }
+//         }
+//     });
+// }

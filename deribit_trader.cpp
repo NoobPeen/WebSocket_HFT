@@ -12,49 +12,12 @@
 #include <thread>
 #include <immintrin.h>
 
-void executeTrades() {
+void handleMenuChoice(int choice, TradeExecution* trade, std::shared_ptr<WebSocketHandler> websocket) {
+    std::string instrument_name, order_id;
+    double amount, price;
+
     try {
-        // Initialize WebSocket connection
-        WebSocketHandler websocket("test.deribit.com", "443", "/ws/api/v2");
-        websocket.connect();
-
-        // Initialize trading operations
-        // std::unique_ptr has minimal overhead and is generally faster than (optimization)
-        // manual memory management with new and delete.
-        auto trade = std::make_unique<TradeExecution>(websocket);
-
-        // Authenticate
-        json auth_response = trade->authenticate(CLIENT_ID, CLIENT_SECRET);
-        std::cout << "Auth Response: " << auth_response.dump(4) << std::endl;
-
-        // std::unordered_map<std::string, json> order_cache;
-
-        while (true) {
-            std::string instrument_name, order_id;
-            double amount, price;
-
-            // Display menu to the user
-            std::cout << "\n--- Trading Menu ---\n";
-            std::cout << "1. Place Order\n";
-            std::cout << "2. Cancel Order\n";
-            std::cout << "3. Modify Order\n";
-            std::cout << "4. Get Order Book\n";
-            std::cout << "5. View Current Positions\n";
-            std::cout << "6. Subscribe to Order Book Updates\n";
-            // std::cout << "7. View Active Orders\n";
-            std::cout << "7. Exit\n";
-            std::cout << "Enter your choice: ";
-            int choice;
-            std::cin >> choice;
-            
-            auto loop_start = LatencyModule::start();  // Start the timer
-            
-            if (choice == 7) {
-                std::cout << "Exiting trading application.\n";
-                break;
-            }
-
-            switch (choice) {
+        switch (choice) {
             case 1: {  // Place Order
                 std::cout << "Enter instrument name (e.g., BTC-PERPETUAL): ";
                 std::cin >> instrument_name;
@@ -63,35 +26,21 @@ void executeTrades() {
                 std::cout << "Enter price: ";
                 std::cin >> price;
 
-                try {
-                    auto order_future = std::async(std::launch::async, [&]() {
+                auto order_future = std::async(std::launch::async, 
+                    [trade, instrument_name, amount, price]() {
+                        std::cout << "Order thread ID: " << std::this_thread::get_id() << std::endl;
                         auto order_start = LatencyModule::start();
-                        json buy_response = trade->placeBuyOrder(instrument_name, amount, price);
+                        auto result = trade->placeBuyOrder(instrument_name, amount, price);
                         LatencyModule::end(order_start, "Order Placement");
-                        return buy_response;
+                        return result;
                     });
-                    
-                    json buy_response = order_future.get();
-                    std::cout << "Full response received: " << buy_response.dump(2) << std::endl;
-                    
-                    if (buy_response.contains("result")) {
-                        const auto& result = buy_response["result"];
-                        std::cout << "Result section: " << result.dump(2) << std::endl;
-                        
-                    //     if (result.contains("order_id")) {
-                    //         std::string order_id = result["order_id"].get<std::string>();
-                    //         order_cache[order_id] = result;
-                    //         std::cout << "Successfully cached order with ID: " << order_id << std::endl;
-                    //         std::cout << "Cache size is now: " << order_cache.size() << std::endl;
-                    //     } else {
-                    //         std::cout << "No order_id in result" << std::endl;
-                    //     }
-                    // } else {
-                    //     std::cout << "No result section in response" << std::endl;
-                    }
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error placing order: " << e.what() << std::endl;
+                std::cout << "Main thread continues immediately..." << std::endl;
+                auto status = order_future.wait_for(std::chrono::seconds(5));
+                if (status == std::future_status::ready) {
+                    auto response = order_future.get();
+                    std::cout << "Order Response: " << response.dump(2) << std::endl;
+                } else {
+                    throw std::runtime_error("Order placement timed out");
                 }
                 break;
             }
@@ -100,26 +49,21 @@ void executeTrades() {
                 std::cout << "Enter order ID to cancel: ";
                 std::cin >> order_id;
 
-                try {
-                        // if (order_cache.count(order_id) > 0) {
-                        //     std::cout << "Cached Order Details: " << order_cache[order_id].dump(4) << std::endl;
-                        // }
-                    
-                        auto cancel_future = std::async(std::launch::async, [&]() {
-                            auto cancel_start = LatencyModule::start();
-                            json cancel_response = trade->cancelOrder(order_id);
-                            LatencyModule::end(cancel_start, "Cancel Order");
-                        
-                            // // Remove from cache after successful cancellation
-                            // if (cancel_response.contains("result")) {
-                            //     order_cache.erase(order_id);
-                            // }
-                        
-                            return cancel_response;
-                        });
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error cancelling order: " << e.what() << std::endl;
+                auto cancel_future = std::async(std::launch::async, 
+                    [trade, order_id]() {
+                        std::cout << "Cancel Order thread ID: " << std::this_thread::get_id() << std::endl;
+                        auto cancel_start = LatencyModule::start();
+                        auto result = trade->cancelOrder(order_id);
+                        LatencyModule::end(cancel_start, "Cancel Order");
+                        return result;
+                    });
+
+                auto status = cancel_future.wait_for(std::chrono::seconds(5));
+                if (status == std::future_status::ready) {
+                    auto response = cancel_future.get();
+                    std::cout << "Cancel Response: " << response.dump(2) << std::endl;
+                } else {
+                    throw std::runtime_error("Order cancellation timed out");
                 }
                 break;
             }
@@ -132,19 +76,21 @@ void executeTrades() {
                 std::cout << "Enter new amount: ";
                 std::cin >> amount;
 
-                try {
-                        auto modify_future = std::async(std::launch::async, [&]() {
+                auto modify_future = std::async(std::launch::async, 
+                    [trade, order_id, price, amount]() {
+                        std::cout << "Modify Order thread ID: " << std::this_thread::get_id() << std::endl;
                         auto modify_start = LatencyModule::start();
-                        json modify_response = trade->modifyOrder(order_id, price, amount);
+                        auto result = trade->modifyOrder(order_id, price, amount);
                         LatencyModule::end(modify_start, "Modify Order");
-                        return modify_response;
-                        });
+                        return result;
+                    });
 
-                    json modify_response = modify_future.get();
-                    std::cout << "Modify Response: " << modify_response.dump(4) << std::endl;
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error modifying order: " << e.what() << std::endl;
+                auto status = modify_future.wait_for(std::chrono::seconds(5));
+                if (status == std::future_status::ready) {
+                    auto response = modify_future.get();
+                    std::cout << "Modify Response: " << response.dump(2) << std::endl;
+                } else {
+                    throw std::runtime_error("Order modification timed out");
                 }
                 break;
             }
@@ -153,31 +99,74 @@ void executeTrades() {
                 std::cout << "Enter instrument name to view order book (e.g., BTC-PERPETUAL): ";
                 std::cin >> instrument_name;
 
-                try {
-                    auto order_book_start = LatencyModule::start();
-                    json order_book = trade->getOrderBook(instrument_name);
-                    LatencyModule::end(order_book_start, "Order Book Fetch");
-                    std::cout << "Order Book: " << order_book.dump(4) << std::endl;
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error fetching order book: " << e.what() << std::endl;
+                auto orderbook_future = std::async(std::launch::async, 
+                    [trade, instrument_name]() {
+                        std::cout << "order book thread ID: " << std::this_thread::get_id() << std::endl;
+                        auto orderbook_start = LatencyModule::start();
+                        std::cout << "Order book thread ID: " << std::this_thread::get_id() << std::endl;
+                        auto result = trade->getOrderBook(instrument_name);
+                        LatencyModule::end(orderbook_start, "Order Book Fetch");
+                        return result;
+                    });
+
+                auto status = orderbook_future.wait_for(std::chrono::seconds(5));
+                if (status == std::future_status::ready) {
+                    auto order_book = orderbook_future.get();
+                    if (order_book.contains("result")) {
+                        const auto& result = order_book["result"];
+                        std::cout << "\nOrder Book for " << instrument_name << ":\n";
+                        
+                        if (result.contains("bids")) {
+                            std::cout << "\nTop 5 Bids:\n";
+                            int count = 0;
+                            for (const auto& bid : result["bids"]) {
+                                if (count++ >= 5) break;
+                                std::cout << "Price: " << bid[0] << ", Size: " << bid[1] << "\n";
+                            }
+                        }
+                        
+                        if (result.contains("asks")) {
+                            std::cout << "\nTop 5 Asks:\n";
+                            int count = 0;
+                            for (const auto& ask : result["asks"]) {
+                                if (count++ >= 5) break;
+                                std::cout << "Price: " << ask[0] << ", Size: " << ask[1] << "\n";
+                            }
+                        }
+                    }
+                } else {
+                    throw std::runtime_error("Order book fetch timed out");
                 }
                 break;
             }
 
-            case 5: {  // View Position for Specific Instrument
-                std::string instrument_name;
+            case 5: {  // View Position
                 std::cout << "Enter instrument name (e.g., BTC-PERPETUAL): ";
                 std::cin >> instrument_name;
-                
-                try {
-                    auto position_start = LatencyModule::start();
-                    json position = trade->getPosition(instrument_name);
-                    LatencyModule::end(position_start, "Position Fetch");
-                    std::cout << "Current Position: " << position.dump(4) << std::endl;
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error fetching position: " << e.what() << std::endl;
+
+                auto position_future = std::async(std::launch::async, 
+                    [trade, instrument_name]() {
+                        std::cout << "position thread ID: " << std::this_thread::get_id() << std::endl;
+                        auto position_start = LatencyModule::start();
+                        std::cout << "Position thread ID: " << std::this_thread::get_id() << std::endl;
+                        auto result = trade->getPosition(instrument_name);
+                        LatencyModule::end(position_start, "Position Fetch");
+                        return result;
+                    });
+
+                auto status = position_future.wait_for(std::chrono::seconds(5));
+                if (status == std::future_status::ready) {
+                    auto position = position_future.get();
+                    if (position.contains("result")) {
+                        const auto& result = position["result"];
+                        std::cout << "\nPosition Details:\n";
+                        std::cout << "Size: " << result.value("size", 0.0) << "\n";
+                        std::cout << "Entry Price: " << result.value("average_price", 0.0) << "\n";
+                        std::cout << "Liquidation Price: " << result.value("liquidation_price", 0.0) << "\n";
+                        std::cout << "Unrealized PNL: " << result.value("total_profit_loss", 0.0) << "\n";
+                    }
+                } else {
+                    throw std::runtime_error("Position fetch timed out");
                 }
                 break;
             }
@@ -185,87 +174,170 @@ void executeTrades() {
             case 6: {  // Subscribe to Order Book
                 std::cout << "Enter instrument name to subscribe (e.g., BTC-PERPETUAL): ";
                 std::cin >> instrument_name;
-                
-                try {
-                    // Start a flag for controlling the subscription
-                    std::atomic<bool> running{true};
-                    
-                    // Subscribe to the order book
-                    trade->subscribeToOrderBook(instrument_name);
-                    std::cout << "Subscribed to order book updates. Press 'q' to unsubscribe." << std::endl;
-                    
-                    // Create two threads - one for listening to updates and one for handling user input
-                    std::thread listen_thread([&]() {
-                        while(running) {
-                            // Continuously read messages
-                            json message = websocket.readMessage();
+
+                std::atomic<bool> running{true};
+                trade->subscribeToOrderBook(instrument_name);
+                std::cout << "Subscribed to order book updates. Press 'q' to unsubscribe.\n";
+
+                std::thread listen_thread([&running, websocket]() {
+                    while(running) {
+                        try {
+                            json message = websocket->readMessage();
                             if(!message.empty()) {
-                                websocket.onMessage(message.dump());
+                                websocket->handleOrderBookUpdate(message);
                             }
-                            std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Small delay to prevent CPU overuse
+                        } catch (const std::exception& e) {
+                            if (running) {
+                                std::cerr << "Error reading message: " << e.what() << std::endl;
+                            }
                         }
-                    });
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
+                });
 
-                    std::thread input_thread([&]() {
-                        char input;
-                        while ((input = std::cin.get()) != 'q') {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        }
-                        running = false;
-                        trade->unsubscribeFromOrderBook(instrument_name);
-                        std::cout << "Unsubscribed from order book updates." << std::endl;
-                    });
+                std::thread input_thread([&running, trade, instrument_name]() {
+                    char input;
+                    while (running && (input = std::cin.get()) != 'q') {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    }
+                    running = false;
+                    trade->unsubscribeFromOrderBook(instrument_name);
+                });
 
-                    // Wait for threads to complete
-                    if(listen_thread.joinable()) listen_thread.join();
-                    if(input_thread.joinable()) input_thread.join();
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "Error in order book subscription: " << e.what() << std::endl;
-                }
+                if(listen_thread.joinable()) listen_thread.join();
+                if(input_thread.joinable()) input_thread.join();
                 break;
             }
-
-            // case 7: {  // Display Cached Orders
-            //     if (order_cache.empty()) {
-            //         std::cout << "\nNo active orders in cache.\n";
-            //     } else {
-            //         std::cout << "\n=== Active Orders ===\n";
-            //         for (const auto& [order_id, order_info] : order_cache) {
-            //             std::cout << "\nOrder ID: " << order_id;
-            //             if (order_info.contains("instrument_name")) {
-            //                 std::cout << "\nInstrument: " << order_info["instrument_name"];
-            //             }
-            //             if (order_info.contains("price")) {
-            //                 std::cout << "\nPrice: " << order_info["price"];
-            //             }
-            //             if (order_info.contains("amount")) {
-            //                 std::cout << "\nAmount: " << order_info["amount"];
-            //             }
-            //             if (order_info.contains("order_state")) {
-            //                 std::cout << "\nState: " << order_info["order_state"];
-            //             }
-            //             std::cout << "\n-------------------\n";
-            //         }
-            //     }
-            //     break;
-            // }
 
             default:
                 std::cout << "Invalid choice. Please try again.\n";
                 break;
-            }
-            LatencyModule::end(loop_start, "End-to-End Trading Loop Latency");  // Measure latency for the trading loop
         }
-
-        // Close connection
-        websocket.close();
-
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in executeTrades: " << e.what() << std::endl;
+        std::cerr << "Error processing command: " << e.what() << std::endl;
     }
 }
+
+
+void executeTrades() {
+    try {
+        // Create io_context with work guard
+        asio::io_context ioc;
+        auto work = std::make_unique<asio::io_context::work>(ioc);
+        
+        // Flags for connection and authentication status
+        std::atomic<bool> is_connected{false};
+        std::atomic<bool> is_authenticated{false};
+        std::atomic<bool> should_exit{false};
+        
+        // Create the WebSocket handler and trade execution objects
+        auto websocket = std::make_shared<WebSocketHandler>(ioc, "test.deribit.com", "443", "/ws/api/v2");
+        auto trade = std::make_unique<TradeExecution>(*websocket);
+
+        // Start the IO context in a separate thread
+        std::thread ioc_thread([&ioc]() {
+            try {
+                std::cout << "Starting IO context thread...\n";
+                ioc.run();
+                std::cout << "IO context thread stopped.\n";
+            } catch (const std::exception& e) {
+                std::cerr << "IO Context error: " << e.what() << std::endl;
+            }
+        });
+
+        // Connect asynchronously with timeout
+        auto connection_start = std::chrono::steady_clock::now();
+        websocket->async_connect([&trade, &is_connected, &is_authenticated]
+            (boost::system::error_code ec) {
+            if (!ec) {
+                is_connected = true;
+                std::cout << "Connected successfully, attempting authentication...\n";
+                
+                try {
+                    json auth_response = trade->authenticate(CLIENT_ID, CLIENT_SECRET);
+                    if (auth_response.contains("result")) {
+                        is_authenticated = true;
+                        std::cout << "Authentication successful!\n";
+                    } else {
+                        std::cerr << "Authentication failed!\n";
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Authentication error: " << e.what() << std::endl;
+                }
+            } else {
+                std::cerr << "Connection failed: " << ec.message() << std::endl;
+            }
+        });
+
+        // Wait for connection and authentication with timeout
+        const int timeout_seconds = 10;
+        while (!is_authenticated) {
+            auto current_time = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(
+                current_time - connection_start).count() > timeout_seconds) {
+                std::cerr << "Connection/Authentication timeout after " << timeout_seconds << " seconds\n";
+                should_exit = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
+        if (!should_exit) {
+            std::cout << "\nConnected and authenticated successfully!\n";
+            
+            while (!should_exit) {
+                std::cout << "\n--- Trading Menu ---\n";
+                std::cout << "Main thread ID: " << std::this_thread::get_id() << std::endl;
+                std::cout << "1. Place Order\n";
+                std::cout << "2. Cancel Order\n";
+                std::cout << "3. Modify Order\n";
+                std::cout << "4. Get Order Book\n";
+                std::cout << "5. View Current Positions\n";
+                std::cout << "6. Subscribe to Order Book Updates\n";
+                std::cout << "7. Exit\n";
+                std::cout << "Enter your choice: ";
+                
+                int choice;
+                if (!(std::cin >> choice)) {
+                    std::cin.clear();
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                    std::cout << "Invalid input. Please enter a number.\n";
+                    continue;
+                }
+
+                if (choice == 7) {
+                    should_exit = true;
+                    break;
+                }
+
+                // Handle menu choices with proper error handling
+                try {
+                    handleMenuChoice(choice, trade.get(), websocket);
+                } catch (const std::exception& e) {
+                    std::cerr << "Error processing menu choice: " << e.what() << std::endl;
+                }
+            }
+        }
+
+        // Cleanup
+        std::cout << "Cleaning up...\n";
+        work.reset(); // Allow io_context to stop
+        websocket->close();
+        ioc.stop();
+        
+        if (ioc_thread.joinable()) {
+            ioc_thread.join();
+        }
+        
+        std::cout << "Cleanup complete. Exiting...\n";
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Fatal error in executeTrades: " << e.what() << std::endl;
+    }
+}
+
+
 
 int main() {
     try {

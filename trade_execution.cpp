@@ -55,17 +55,21 @@ json TradeExecution::authenticate(const std::string& client_id, const std::strin
                 {"client_secret", client_secret}
             }}
         };
+        
+        std::cout << "Sending auth message: " << auth_message.dump(2) << std::endl;
         websocket_.sendMessage(auth_message);
+        
         auto response = websocket_.readMessage();
+        std::cout << "Received auth response: " << response.dump(2) << std::endl;  // Add this debug line
 
         if (!response.contains("result")) {
             throw std::runtime_error("Authentication failed: " + response.dump());
         }
-        return response["result"];
+        return response;
     }
     catch (const std::exception& e) {
         std::cerr << "Error in authenticate: " << e.what() << std::endl;
-        throw; // Re-throw for higher-level handling
+        throw;
     }
 }
 
@@ -101,12 +105,14 @@ json TradeExecution::placeBuyOrder(const std::string& instrument_name, double am
                 {"price", price}
             }}
         };
+        
+        // Add timeout and error handling
         websocket_.sendMessage(buy_request);
         auto response = websocket_.readMessage();
         
-        // Add debug logging
-        std::cout << "Buy order response: " << response.dump(2) << std::endl;
-        
+        if (response.empty()) {
+            throw std::runtime_error("Empty response received from exchange");
+        }
         return response;
     }
     catch (const std::exception& e) {
