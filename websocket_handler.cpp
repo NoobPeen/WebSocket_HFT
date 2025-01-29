@@ -264,7 +264,6 @@ void WebSocketHandler::close_connection() {
     }
 }
 
-// In WebSocketHandler class, add a method to send ping
 // void WebSocketHandler::start_ping_timer() {
 //     auto timer = std::make_shared<boost::asio::steady_timer>(ioc_);
 //     timer->expires_after(std::chrono::seconds(30));
